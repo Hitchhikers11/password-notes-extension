@@ -82,18 +82,19 @@
 
   const popup = document.getElementById("PopupAutoComplete");
   if (popup) {
-    popup.addEventListener("popupshown", async () => {
+    let annotateTimer = null;
+
+    async function annotatePopup() {
       const host = gBrowser.currentURI?.host;
       if (!host) return;
 
       const notes = await loadNotes();
 
-      // Notes of the current host: Username -> Note text
       const hostNotes = {};
       for (const [key, val] of Object.entries(notes)) {
         try {
-          const origin   = key.split(":::")[0];
-          const username = key.split(":::")[1];
+          const origin     = key.split(":::")[0];
+          const username   = key.split(":::")[1];
           const originHost = new URL(origin).hostname;
           if (originHost === host || originHost.endsWith("." + host) || host.endsWith("." + originHost)) {
             hostNotes[username] = val.note;
@@ -101,20 +102,15 @@
         } catch {}
       }
 
-      if (!Object.keys(hostNotes).length) return;
-
       const box = popup.querySelector("richlistbox") || popup.querySelector(".autocomplete-richlistbox");
       if (!box) return;
 
-      const items = box.querySelectorAll("richlistitem");
-
-      items.forEach(item => {
+      box.querySelectorAll("richlistitem").forEach(item => {
         const username = item.getAttribute("ac-value");
         if (!username) return;
-        const note = hostNotes[username];
-        if (!note) return;
-        // Update existing note instead of skipping it (on page reload)
+        const note     = hostNotes[username];
         const existing = item.querySelector(".pwn-note");
+        if (!note) { existing?.remove(); return; }
         if (existing) { existing.textContent = note; return; }
 
         const noteEl = document.createElementNS("http://www.w3.org/1999/xhtml", "div");
@@ -125,12 +121,32 @@
         const wrapper = item.querySelector(".two-line-wrapper");
         if (!wrapper) { item.appendChild(noteEl); return; }
 
-        // Line flex wrap – note takes the full width of a new line
-        wrapper.style.flexWrap = "wrap";
+        wrapper.style.flexWrap  = "wrap";
         wrapper.style.alignContent = "center";
         noteEl.style.flex = "0 0 100%";
         wrapper.appendChild(noteEl);
       });
+    }
+
+    let observer = null;
+
+    popup.addEventListener("popupshown", () => {
+      annotatePopup();
+
+      // Observer neu anlegen wenn Popup öffnet
+      const box = popup.querySelector("richlistbox") || popup.querySelector(".autocomplete-richlistbox");
+      if (box && !observer) {
+        observer = new MutationObserver(() => {
+          clearTimeout(annotateTimer);
+          annotateTimer = setTimeout(annotatePopup, 80);
+        });
+        observer.observe(box, { childList: true, subtree: true, attributes: true, attributeFilter: ["ac-value"] });
+      }
+    });
+
+    popup.addEventListener("popuphidden", () => {
+      observer?.disconnect();
+      observer = null;
     });
   }
 
