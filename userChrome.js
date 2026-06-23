@@ -1,4 +1,4 @@
-// Password Notes – userChrome.js (Chrome-Prozess)
+// Password Notes – userChrome.js (Chrome process)
 // Detects about:logins, loads frame script, handles file I/O
 
 (function () {
@@ -133,7 +133,7 @@
     popup.addEventListener("popupshown", () => {
       annotatePopup();
 
-      // Observer neu anlegen wenn Popup öffnet
+      // Set up observer each time the popup opens
       const box = popup.querySelector("richlistbox") || popup.querySelector(".autocomplete-richlistbox");
       if (box && !observer) {
         observer = new MutationObserver(() => {
