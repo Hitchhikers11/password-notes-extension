@@ -62,7 +62,8 @@ async function run() {
     // ── Build container (re-injected with each login change)
 
     function buildContainer() {
-      const shadow = loginItem.shadowRoot;
+      let shadow;
+      try { shadow = loginItem.shadowRoot; } catch { return; }
       if (!shadow) return;
 
       // Fallback: Derive currentLogin from Shadow DOM fields (e.g., direct URL call)
@@ -197,7 +198,10 @@ async function run() {
   }
 
   function makeKey(login) {
-    return `${login.origin}:::${login.username}`;
+    try {
+      const hostname = new URL(login.origin).hostname;
+      return `${Services.eTLD.getBaseDomainFromHost(hostname)}:::${login.username}`;
+    } catch { return `${login.origin}:::${login.username}`; }
   }
 
   init().catch(() => {});

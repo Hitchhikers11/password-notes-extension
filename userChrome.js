@@ -12,10 +12,30 @@
 
   async function loadNotes() {
     try {
-      return await IOUtils.readJSON(notesFilePath);
+      const raw = await IOUtils.readJSON(notesFilePath);
+      return migrateKeys(raw);
     } catch {
       return {};
     }
+  }
+
+  // Migrate old keys (full origin or hostname) → base domain, e.g. "https://dev.example.com:::user" → "example.com:::user"
+  function migrateKeys(notes) {
+    let changed = false;
+    const out = {};
+    for (const [key, val] of Object.entries(notes)) {
+      try {
+        const sep = key.indexOf(":::");
+        const originOrHost = key.slice(0, sep);
+        const username = key.slice(sep + 3);
+        const hostname = originOrHost.includes("://") ? new URL(originOrHost).hostname : originOrHost;
+        const newKey = `${Services.eTLD.getBaseDomainFromHost(hostname)}:::${username}`;
+        if (newKey !== key) { out[newKey] = val; changed = true; continue; }
+      } catch {}
+      out[key] = val;
+    }
+    if (changed) IOUtils.writeJSON(notesFilePath, out, { indent: 2 }).catch(() => {});
+    return out;
   }
 
   async function saveNotes(notes) {
@@ -85,20 +105,22 @@
     let annotateTimer = null;
 
     async function annotatePopup() {
-      const host = gBrowser.currentURI?.host;
+      let host;
+      try { host = gBrowser.currentURI?.host; } catch { return; }
       if (!host) return;
 
       const notes = await loadNotes();
 
+      let baseHost;
+      try { baseHost = Services.eTLD.getBaseDomainFromHost(host); } catch { baseHost = host; }
+
       const hostNotes = {};
       for (const [key, val] of Object.entries(notes)) {
         try {
-          const origin     = key.split(":::")[0];
-          const username   = key.split(":::")[1];
-          const originHost = new URL(origin).hostname;
-          if (originHost === host || originHost.endsWith("." + host) || host.endsWith("." + originHost)) {
-            hostNotes[username] = val.note;
-          }
+          const sep = key.indexOf(":::");
+          const keyHost = key.slice(0, sep);
+          const username = key.slice(sep + 3);
+          if (keyHost === baseHost) hostNotes[username] = val.note;
         } catch {}
       }
 
@@ -106,8 +128,10 @@
       if (!box) return;
 
       box.querySelectorAll("richlistitem").forEach(item => {
-        const username = item.getAttribute("ac-value");
-        if (!username) return;
+        const acValue = item.getAttribute("ac-value");
+        if (!acValue) return;
+        // Firefox appends " (date)" to disambiguate duplicate usernames — strip it
+        const username = acValue.replace(/\s*\([^)]+\)\s*$/, "");
         const note     = hostNotes[username];
         const existing = item.querySelector(".pwn-note");
         if (!note) { existing?.remove(); return; }
